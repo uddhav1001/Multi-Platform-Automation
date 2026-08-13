@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Pytest / test artifacts
+.pytest_cache/
+reports/
+test-results/
+*.html
+
+# Playwright
+playwright/.cache/
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Word document (generated artifact, not source code)
+*.docx
+
+# Helper scripts used for setup only
+create_docx.py
+
+# Secrets / env files
+.env
+*.env

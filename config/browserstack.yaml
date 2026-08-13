@@ -1,0 +1,11 @@
+# Example BrowserStack capability configuration.
+# Fill credentials through environment variables, never commit them.
+platforms:
+  - browserName: Chrome
+    deviceName: iPhone 14
+    realMobile: true
+    osVersion: '16'
+  - browserName: Chrome
+    deviceName: Samsung Galaxy S22
+    realMobile: true
+    osVersion: '12'
