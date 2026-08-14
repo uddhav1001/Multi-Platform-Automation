@@ -3,7 +3,7 @@ import uuid
 
 app = Flask(__name__)
 projects = {
-    "company1": [],
+    "company1": [{"id": "seed-c1", "name": "Company1 Demo Project", "description": "Seed project", "status": "active"}],
     "company2": [{"id": "seed-1", "name": "Company2 Demo Project", "description": "Seed project", "status": "active"}],
 }
 USERS = {

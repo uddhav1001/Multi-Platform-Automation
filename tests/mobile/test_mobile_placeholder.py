@@ -1,16 +1,17 @@
 """
-Mobile Test Strategy — BrowserStack Real-Device Execution
-==========================================================
+Mobile Test Strategy — Local Playwright Mobile Viewport Execution
+=================================================================
 
 Architecture
 ------------
 Mobile tests use the same Page Object Model and fixtures as the desktop suite.
-The only difference is the browser context: instead of launching a local browser,
-the test sends capabilities to BrowserStack Automate via its Playwright SDK.
+The only difference is the browser context: instead of launching a local browser
+at desktop size, the test runs with an iPhone 14 viewport emulation via Playwright.
 
 Execution model:
-  Local:        pytest tests/mobile --browser chromium            (responsive viewport)
-  BrowserStack: pytest tests/mobile -m browserstack               (real device/cloud)
+  Local:        pytest tests/mobile                          (iPhone 14 viewport)
+  BrowserStack: Set BROWSERSTACK_USERNAME + ACCESS_KEY and swap bs_page fixture
+                to use cdp.browserstack.com connection.
 
 BrowserStack setup (requires account credentials in environment variables):
 
@@ -30,11 +31,12 @@ them and yields a Playwright page connected to the remote device session.
         realMobile: true
         osVersion: "12"
 
-Why a placeholder?
-------------------
-A local demo environment cannot provision a real mobile device.  The test is
-structured, marked, and documented so that swapping `pytest.skip` for a live
-BrowserStack context is a one-line change once credentials are configured.
+Why local emulation?
+--------------------
+A local demo environment cannot provision a real mobile device. The bs_page fixture
+uses Playwright's built-in iPhone 14 device descriptor to emulate a mobile viewport
+locally. Swapping to a live BrowserStack context is a one-line change once credentials
+are configured.
 """
 
 import os
@@ -43,40 +45,41 @@ from playwright.sync_api import expect
 
 
 # ---------------------------------------------------------------------------
-# BrowserStack fixture stub
+# BrowserStack / Mobile fixture
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def bs_page(env_config):
+def bs_page(playwright, env_config):
     """
-    In a real run, replace this stub with a BrowserStack-connected context.
+    Yields a Playwright page with iPhone 14 mobile viewport emulation.
 
-    from browserstack.local import Local
-    from playwright.sync_api import sync_playwright
+    Uses the `playwright` fixture provided by pytest-playwright (avoids
+    nested sync_playwright() context which conflicts with the existing event loop).
 
-    cap = {
-        "browser": "chrome",
-        "browser_version": "latest",
-        "os": "iOS",
-        "os_version": "16",
-        "name": "Mobile project visibility test",
-        "build": os.getenv("CI_BUILD_ID", "local"),
-        "browserstack.username": os.getenv("BROWSERSTACK_USERNAME"),
-        "browserstack.accessKey": os.getenv("BROWSERSTACK_ACCESS_KEY"),
-    }
-    cdp_url = f"wss://cdp.browserstack.com/playwright?caps={json.dumps(cap)}"
-    with sync_playwright() as p:
-        browser = p.chromium.connect(cdp_url)
+    To switch to BrowserStack real-device execution, replace the body with:
+
+        import json
+        cap = {
+            "browser": "chrome",
+            "os": "iOS",
+            "os_version": "16",
+            "name": "Mobile project visibility test",
+            "browserstack.username": os.getenv("BROWSERSTACK_USERNAME"),
+            "browserstack.accessKey": os.getenv("BROWSERSTACK_ACCESS_KEY"),
+        }
+        cdp_url = f"wss://cdp.browserstack.com/playwright?caps={json.dumps(cap)}"
+        browser = playwright.chromium.connect(cdp_url)
         page = browser.new_page()
         yield page
         browser.close()
     """
-    pytest.skip(
-        "BrowserStack real-device execution requires BROWSERSTACK_USERNAME and "
-        "BROWSERSTACK_ACCESS_KEY environment variables plus a configured account. "
-        "See config/browserstack.yaml."
-    )
-    yield  # unreachable; satisfies the fixture protocol
+    iphone = playwright.devices["iPhone 14"]
+    browser = playwright.chromium.launch()
+    context = browser.new_context(**iphone)
+    page = context.new_page()
+    yield page
+    context.close()
+    browser.close()
 
 
 # ---------------------------------------------------------------------------
@@ -86,7 +89,7 @@ def bs_page(env_config):
 @pytest.mark.browserstack
 def test_project_visible_on_mobile(bs_page, env_config, credentials):
     """
-    Verifies that the Projects list renders correctly on a real mobile device.
+    Verifies that the Projects list renders correctly on a mobile viewport.
 
     Steps:
     1. Navigate to the login page on the mobile device.

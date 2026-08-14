@@ -2,7 +2,7 @@
 Part 3: API + UI Integration Test
 
 This test validates the complete flow of project creation across all layers:
-API creation, Desktop Web UI verification, Mobile UI verification (BrowserStack),
+API creation, Desktop Web UI verification, Mobile UI verification (local viewport),
 and API/UI Security boundaries (Tenant Isolation).
 
 Strategy & Edge Case Handling:
@@ -10,18 +10,19 @@ Strategy & Edge Case Handling:
   is managed via API (faster and more reliable than UI).
 - Network Failures / Slow API: Handled by `ProjectClient` which implements exponential backoff retries.
 - Slow UI Loading: Handled by Playwright's auto-waiting `expect(locator).to_be_visible(timeout=10000)`.
-- Cross-Platform: Pytest parameterizes the Desktop UI across Chrome/Firefox/Safari. Mobile is run
-  dynamically via BrowserStack CDP connection inline.
+- Cross-Platform: Desktop UI runs in the configured browser. Mobile is emulated locally via
+  Playwright's iPhone 14 device descriptor (using the `playwright` fixture from pytest-playwright).
 """
 
 import os
 import json
+import urllib.parse
 import pytest
-from playwright.sync_api import expect, sync_playwright
+from playwright.sync_api import expect
 from src.api.project_client import ProjectClient
 from src.utils.data_generator import unique_project_name
 
-def test_project_creation_flow(page, api_token, credentials, env_config):
+def test_project_creation_flow(playwright, page, api_token, credentials, env_config):
     # Setup test data variables
     project_name = unique_project_name()
     company1_client = ProjectClient(env_config['api_base'], api_token, 'company1')
@@ -52,10 +53,12 @@ def test_project_creation_flow(page, api_token, credentials, env_config):
         page.get_by_role('button', name='Log in').click()
         page.wait_for_url(f"{env_config['base_url']}/dashboard", timeout=15000)
 
-        # Search for and assert the project renders correctly
-        page.goto(f"{env_config['base_url']}/projects")
-        page.get_by_placeholder('Search projects').fill(project_name)
-        
+        # Navigate to projects with the search query param applied server-side.
+        # The Flask app filters via GET ?search=; using URL navigation is more robust
+        # than filling the search input and submitting the form manually.
+        search_param = urllib.parse.urlencode({'search': project_name})
+        page.goto(f"{env_config['base_url']}/projects?{search_param}")
+
         # Edge Case: Dynamic rendering / Slow networks
         # Playwright auto-retries the visibility assertion until the timeout is reached.
         project_card = page.locator('.project-card', has_text=project_name)
@@ -65,41 +68,35 @@ def test_project_creation_flow(page, api_token, credentials, env_config):
         # ---------------------------------------------------------------------
         # 3. Mobile: Check mobile accessibility
         # ---------------------------------------------------------------------
-        # We utilize BrowserStack to provision a real mobile device via Playwright's remote CDP.
-        # This tests exactly how the layout behaves on a real mobile viewport (e.g. iPhone 14).
-        bs_user = os.getenv("BROWSERSTACK_USERNAME")
-        bs_key = os.getenv("BROWSERSTACK_ACCESS_KEY")
-        
-        if bs_user and bs_key:
-            cap = {
-                "browser": "chrome",
-                "os": "iOS",
-                "os_version": "16",
-                "name": "Part 3 Mobile Validation",
-                "browserstack.username": bs_user,
-                "browserstack.accessKey": bs_key,
-            }
-            cdp_url = f"wss://cdp.browserstack.com/playwright?caps={json.dumps(cap)}"
-            
-            with sync_playwright() as p:
-                mobile_browser = p.chromium.connect(cdp_url)
-                mobile_page = mobile_browser.new_page()
-                
-                # Verify project is visible on mobile viewport
-                mobile_page.goto(f"{env_config['base_url']}/login")
-                mobile_page.get_by_label('Email').fill(credentials['admin']['email'])
-                mobile_page.get_by_label('Password').fill(credentials['admin']['password'])
-                mobile_page.get_by_role('button', name='Log in').click()
-                mobile_page.wait_for_url(f"{env_config['base_url']}/dashboard")
-                
-                mobile_page.goto(f"{env_config['base_url']}/projects")
-                mobile_page.get_by_placeholder('Search projects').fill(project_name)
-                expect(mobile_page.locator('.project-card', has_text=project_name)).to_be_visible()
-                
-                mobile_browser.close()
-        else:
-            # For demonstration purposes: if no keys are provided, we just log and skip the Mobile step
-            pytest.skip("Skipping mobile verification: missing BROWSERSTACK_USERNAME/ACCESS_KEY.")
+        # We use Playwright's built-in iPhone 14 device emulation for local runs.
+        # Using the `playwright` fixture from pytest-playwright avoids the event loop
+        # conflict that would occur if sync_playwright() were called inside a test.
+        #
+        # To switch to BrowserStack real-device execution, replace the context creation:
+        #   cap = {"browser": "chrome", "os": "iOS", "os_version": "16",
+        #          "browserstack.username": os.getenv("BROWSERSTACK_USERNAME"),
+        #          "browserstack.accessKey": os.getenv("BROWSERSTACK_ACCESS_KEY")}
+        #   cdp_url = f"wss://cdp.browserstack.com/playwright?caps={json.dumps(cap)}"
+        #   mobile_browser = playwright.chromium.connect(cdp_url)
+
+        iphone = playwright.devices["iPhone 14"]
+        mobile_browser = playwright.chromium.launch()
+        mobile_context = mobile_browser.new_context(**iphone)
+        mobile_page = mobile_context.new_page()
+
+        try:
+            # Verify project is visible on mobile viewport
+            mobile_page.goto(f"{env_config['base_url']}/login")
+            mobile_page.get_by_label('Email').fill(credentials['admin']['email'])
+            mobile_page.get_by_label('Password').fill(credentials['admin']['password'])
+            mobile_page.get_by_role('button', name='Log in').click()
+            mobile_page.wait_for_url(f"{env_config['base_url']}/dashboard", timeout=15000)
+
+            mobile_page.goto(f"{env_config['base_url']}/projects?{search_param}")
+            expect(mobile_page.locator('.project-card', has_text=project_name)).to_be_visible(timeout=10000)
+        finally:
+            mobile_context.close()
+            mobile_browser.close()
 
 
         # ---------------------------------------------------------------------
